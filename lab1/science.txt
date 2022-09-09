@@ -9,6 +9,7 @@ Function
 - func: (double) -> double
 - text: String
 + apply(double): double
++ describe(double): string
 + __repr__(): string
 
 FunctionView : wx.Frame
