@@ -1,6 +1,9 @@
 import math
 import wx
 
+DEFAULT_COLOR = "#f03434"
+MIN_PLOT_SIZE = 10
+
 class Function:
     def __init__(self, func, text):
         """
@@ -39,6 +42,7 @@ class Function:
 class SinglePanelMdiChild(wx.MDIChildFrame):
     def __init__(self, parent):
         wx.MDIChildFrame.__init__(self, parent, -1)
+        self.Bind(wx.EVT_KEY_UP, self.OnKeyUp)
 
     def SetContent(self, content):
         sizer = wx.BoxSizer()
@@ -46,6 +50,12 @@ class SinglePanelMdiChild(wx.MDIChildFrame):
         self.SetSizer(sizer)
         self.Fit()
         self.Layout()
+
+    def OnKeyUp(self, event):
+        # close window on CTRL+BACKSPACE
+        if event.GetModifiers() == wx.MOD_CONTROL and event.GetKeyCode() == wx.WXK_BACK:
+            # print("attempting to close...")
+            self.Close()
 
 
 class FPlot(wx.Panel):
@@ -55,6 +65,7 @@ class FPlot(wx.Panel):
         self.zoom = 20
         self.series = []
         self.description = ""
+        self.color = DEFAULT_COLOR
         self.plot = wx.Panel(self, -1)
         sizer = wx.GridBagSizer()
         sizer.SetRows(3)
@@ -64,7 +75,10 @@ class FPlot(wx.Panel):
         sizer.AddGrowableCol(0, 1)
         sizer.AddGrowableCol(2, 1)
         sizer.Add(self.plot, wx.GBPosition(1, 1))
-        sizer.Add(wx.Panel(self, -1, size=(1,1)), wx.GBPosition(2, 2), flag=wx.ALIGN_BOTTOM | wx.ALIGN_RIGHT)
+        self.text = wx.StaticText(self, -1, "")
+        sizer.Add(self.text, wx.GBPosition(0, 1), flag = wx.ALIGN_CENTER | wx.ALIGN_CENTER_VERTICAL)
+        sizer.Add(wx.Panel(self, -1, size=(1,1)), wx.GBPosition(2, 2), 
+                  flag=wx.ALIGN_BOTTOM | wx.ALIGN_RIGHT)
         self.SetSizer(sizer)
         self.Layout()
         self.plot.SetBackgroundColour(wx.Colour(0xfbf8f5))
@@ -72,9 +86,13 @@ class FPlot(wx.Panel):
 
     def SetData(self, series, description=""):
         self.series = series
-        self.description = description
-        width = abs(int(series[-1][0]-series[0][0])) * self.zoom
+        self.text.SetLabel(description)
+        width = max(abs(int(series[-1][0]-series[0][0])), MIN_PLOT_SIZE) * self.zoom
         self.plot.SetInitialSize(wx.Size(width, width))
+        self.plot.Refresh()
+
+    def SetLineColor(self, color):
+        self.color = color
         self.plot.Refresh()
 
     def OnPaint(self, event):
@@ -88,15 +106,16 @@ class FPlot(wx.Panel):
 
         shifted = self.series[1::]
         shifted.append(shifted[-1])
-        
+
+        x_start = int(self.series[0][0]-MIN_PLOT_SIZE)
+
         width, height = self.plot.GetSize()
-        origin = (width // 2, height // 2)
+        origin = (width // 2 - int(self.series[0][0]+self.series[-1][0]) // 2 * zoom, height // 2)
 
         # draw grid
         dc.SetPen(wx.Pen("#e8e9ef"))
-        for i in range(zoom, width // 2, zoom):
-            dc.DrawLine(origin[0] + i, 0, origin[0] + i, height)
-            dc.DrawLine(origin[0] - i, 0, origin[0] - i, height)
+        for i in range(origin[0]+x_start*zoom, width, zoom):
+            dc.DrawLine(i, 0, i, height)
         for i in range(zoom, height // 2, zoom):
             dc.DrawLine(0, origin[1] + i, width, origin[1] + i)
             dc.DrawLine(0, origin[1] - i, width, origin[1] - i)
@@ -114,7 +133,11 @@ class FPlot(wx.Panel):
         val_max = height 
         arg_max = width
         # draw function graph
-        dc.SetPen(wx.Pen("#991111"))
+        try:
+            dc.SetPen(wx.Pen(self.color))
+        except:
+            self.color = DEFAULT_COLOR
+            dc.SetPen(wx.Pen(self.color))
         for p1, p2 in zip(self.series, shifted):
             x1 = origin[0] + p1[0]*zoom
             y1 = origin[1] - p1[1]*zoom
@@ -129,6 +152,7 @@ class FTable(wx.TextCtrl):
     def __init__(self, parent):
         wx.TextCtrl.__init__(self, parent, -1, style=(wx.TE_MULTILINE | wx.TE_READONLY))
         self.SetFont(wx.Font(10, wx.FONTFAMILY_TELETYPE, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
+        self.SetCanFocus(False)
         self.Fit()
         self.Layout()
 
@@ -139,25 +163,25 @@ class FTable(wx.TextCtrl):
             self.AppendText(f"{cnt:>4}  {x:>14.3f}  {y:>15.3g}\n")
             cnt += 1
 
-class FunctionView(wx.Frame):
-    def __init__(self, parent, functions):
+class FunctionView(wx.Panel):
+    def __init__(self, parent, functions, onTableButton, onPlotButton):
         """
         @param parent: parent widget
         @param functions: function collection to show
         """
-        wx.Frame.__init__(self, parent, -1, "Lab 3")
+        wx.Panel.__init__(self, parent, -1)
         self.SetBackgroundColour(wx.Colour(0xf3f3f3))
         # to create a panel and fill it with function descriptions
         panel = wx.Panel(self)
         sizer = wx.GridBagSizer(4, 12)
-        rows, cols = 5, 3
+        rows, cols = 7, 3
         sizer.SetRows(rows)
         sizer.SetCols(cols)
         for i in range(rows): sizer.AddGrowableRow(i)
         for j in range(cols): sizer.AddGrowableCol(j)
         # to create first block: function selector
         text = wx.StaticText(panel, -1, "Оберіть функцію")
-        sizer.Add(text, wx.GBPosition(0, 0), wx.GBSpan(1, 2), flag=wx.ALIGN_CENTER_VERTICAL)
+        sizer.Add(text, wx.GBPosition(0, 0), wx.GBSpan(1, 2), flag=wx.ALIGN_CENTER_VERTICAL | wx.TOP, border=30)
         f_choice = wx.Choice(panel, choices=[str(f) for f in functions])
         sizer.Add(f_choice, wx.GBPosition(1, 0), wx.GBSpan(1, 3), flag=wx.EXPAND | wx.BOTTOM, border=10)
         # to create second block: arg input
@@ -174,18 +198,27 @@ class FunctionView(wx.Frame):
         sizer.Add(end_input, wx.GBPosition(3, 1), flag=wx.EXPAND | wx.BOTTOM, border=10)
         slices_input = wx.TextCtrl(panel, -1, style=wx.TE_CENTER)
         sizer.Add(slices_input, wx.GBPosition(3, 2), flag=wx.EXPAND | wx.BOTTOM, border=10)
+        # color of plot
+        text = wx.StaticText(panel, -1, "Колір (hex) лінії графіка")
+        sizer.Add(text, wx.GBPosition(4, 0), wx.GBSpan(1, 2), flag=wx.ALIGN_CENTER_VERTICAL)
+        color_hex_input = wx.TextCtrl(panel, -1, style=wx.TE_CENTER)
+        color_hex_input.SetValue(DEFAULT_COLOR)
+        sizer.Add(color_hex_input, wx.GBPosition(4, 2), flag=wx.ALIGN_CENTER_VERTICAL)
         # submit buttons
         table_button = wx.Button(panel, -1, "Таблиця")
         table_button.SetCanFocus(False)
-        sizer.Add(table_button, wx.GBPosition(4, 0), flag=wx.EXPAND)
+        sizer.Add(table_button, wx.GBPosition(6, 0), flag=wx.EXPAND)
         plot_button = wx.Button(panel, -1, "Графік")
         plot_button.SetCanFocus(False)
-        sizer.Add(plot_button, wx.GBPosition(4, 2), flag=wx.EXPAND)
+        sizer.Add(plot_button, wx.GBPosition(6, 2), flag=wx.EXPAND)
+        # finish panel layout
         panel.SetSizer(sizer)
         panel.Layout()
         # to make the panel fill main window
         sizer = wx.BoxSizer()
-        sizer.Add(panel, 1, wx.ALL | wx.EXPAND, 4)
+        sizer.AddStretchSpacer()
+        sizer.Add(panel, 1)
+        sizer.AddStretchSpacer()
         self.SetSizer(sizer)
         self.Layout()
         w, h = self.GetSize()
@@ -199,21 +232,19 @@ class FunctionView(wx.Frame):
         self.slices_input = slices_input
         self.table_button = table_button
         self.plot_button = plot_button
+        self.color_hex_input = color_hex_input
         # bind event handlers
-        table_button.Bind(wx.EVT_BUTTON, self.OnTableButton)
-        plot_button.Bind(wx.EVT_BUTTON, self.OnPlotButton)
-        f_choice.Bind(wx.EVT_CHOICE, self.OnAnyInputChange)
-        start_input.Bind(wx.EVT_TEXT, self.OnAnyInputChange)
-        end_input.Bind(wx.EVT_TEXT, self.OnAnyInputChange)
-        slices_input.Bind(wx.EVT_TEXT, self.OnAnyInputChange)
+        table_button.Bind(wx.EVT_BUTTON, lambda event: onTableButton(self.OnSubmit()))
+        plot_button.Bind(wx.EVT_BUTTON, lambda event: onPlotButton(self.OnSubmit()))
         pass
 
-    def OnTableButton(self, event):
+    def OnSubmit(self):
         # get choice index and do some safety checks
         f_choice_index = self.f_choice.GetSelection()
+        color = self.color_hex_input.GetValue()
         if f_choice_index == wx.NOT_FOUND:
             self.Error("Для початку оберіть функцію з переліку.")
-            return
+            return ([], "", color)
         # get argument value and do some safety checks
         try:
             start = float(self.start_input.GetValue())
@@ -221,45 +252,18 @@ class FunctionView(wx.Frame):
             slices = int(self.slices_input.GetValue())
         except ValueError:
             self.Error("Не вдалося перетворити введені параметри в число. Спробуйте з іншими значеннями.")
-            return
+            return ([], "", color)
         # apply function to argument and describe it all in output field
         try:
             func = self.functions[f_choice_index]
             series = func.apply(start, end, slices)
         except:
             self.Error("При обчисленні значень функції виникла помилка. Спробуйте задати інші значення.")
-            return
-        self.FillTable(series)
-        self.DrawPlot(series)
-        self.submit_button.Disable()
-        pass
-
-    def OnPlotButton(self, event):
-        pass
-
-    def OnAnyInputChange(self, event):
-        """
-        Responds to any input change
-        @param event: event to handle
-        """
-        self.submit_button.Enable()
-        pass
+            return ([], "", color)
+        return (series, str(func), color)
 
     def Error(self, message):
-        self.table_output.SetValue(message)
-        pass
-
-    def FillTable(self, series):
-        cnt = 0
-        self.table_output.SetValue("  #             x               f(x)\n")
-        for x, y in series:
-            self.table_output.AppendText(f"{cnt:>4}  {x:>14.3f}  {y:>15.3g}\n")
-            cnt += 1
-        pass
-
-    def DrawPlot(self, series):
-        self.plot_output.SetData(series)
-        self.plot_output.Refresh()
+        print(message)
         pass
 
 
@@ -280,30 +284,40 @@ class FuctionViewerApp(wx.App):
                 "sin(x) + exp(x/9)"
             )
         ]
-        series = functions[2].apply(-10, 10, 200)
-        mdi = wx.MDIParentFrame(None)
-        mdi.SetTitle("Лабораторна робота 4")
-        # example of a table in mdi
-        frame1 = SinglePanelMdiChild(mdi)
-        frame1.SetTitle("Таблиця 1")
+        self.plotCount = 0
+        self.tableCount = 0
+        self.mdi = wx.MDIParentFrame(None)
+        self.mdi.SetTitle("Лабораторна робота 4")
+        self.mdi.SetSize(wx.Size(608, 608))
+        self.mdi.SetMinSize(wx.Size(662, 706))
+        # func selector
+        frame0 = SinglePanelMdiChild(self.mdi)
+        frame0.SetTitle("Функція")
+        fselect = FunctionView(frame0, functions, self.AddTable, self.AddPlot)
+        frame0.Show()
+        self.mdi.Show()
+        return True
+
+    def AddTable(self, data):
+        self.tableCount += 1
+        series, description, color = data
+        frame1 = SinglePanelMdiChild(self.mdi)
+        frame1.SetTitle(f"Таблиця {self.tableCount}")
         ftable = FTable(frame1)
         ftable.SetData(series)
         frame1.SetContent(ftable)
         frame1.Show()
-        # example of a plot in mdi
-        frame2 = SinglePanelMdiChild(mdi)
-        frame2.SetTitle("Графік 1")
+
+    def AddPlot(self, data):
+        self.plotCount += 1
+        series, description, color = data
+        frame2 = SinglePanelMdiChild(self.mdi)
+        frame2.SetTitle(f"Графік {self.plotCount}")
         fplot = FPlot(frame2)
-        fplot.SetData(series)
+        fplot.SetData(series, description)
+        fplot.SetLineColor(color)
         frame2.SetContent(fplot)
         frame2.Show()
-        mdi.SetSize(wx.Size(608, 608))
-        print(mdi.GetSize())
-        print(mdi.GetMinSize())
-        mdi.SetMinSize(wx.Size(662, 706))
-        print(mdi.GetMinSize())
-        mdi.Show()
-        return True
 
 
 if __name__ == '__main__':
